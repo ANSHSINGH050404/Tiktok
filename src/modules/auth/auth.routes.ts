@@ -2,8 +2,9 @@ import { Router } from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import type { SignOptions } from "jsonwebtoken";
-import { query } from "../db.ts";
-import type { User, RegisterBody, LoginBody } from "../types.ts";
+import { query } from "../../db/pg.ts";
+import type { User, RegisterBody, LoginBody } from "../../types/index.ts";
+import { config } from "../../config/index.ts";
 
 const router = Router();
 
@@ -23,7 +24,7 @@ router.post("/register", async (req, res) => {
 
     const existing = await query(
       "SELECT id FROM users WHERE email = $1 OR username = $2",
-      [email, username]
+      [email, username],
     );
 
     if (existing.rowCount && existing.rowCount > 0) {
@@ -31,22 +32,21 @@ router.post("/register", async (req, res) => {
       return;
     }
 
-    const saltRounds = 12;
-    const password_hash = await bcrypt.hash(password, saltRounds);
+    const password_hash = await bcrypt.hash(password, 12);
 
     const result = await query(
       `INSERT INTO users (username, email, password_hash, full_name)
        VALUES ($1, $2, $3, $4)
        RETURNING id, username, email, full_name, avatar_url, bio, created_at`,
-      [username, email, password_hash, full_name ?? null]
+      [username, email, password_hash, full_name ?? null],
     );
 
     const user = result.rows[0] as User;
 
     const token = jwt.sign(
       { userId: user.id, email: user.email },
-      process.env.JWT_SECRET!,
-      { expiresIn: (process.env.JWT_EXPIRES_IN ?? "7d") as SignOptions["expiresIn"] }
+      config.jwt.secret,
+      { expiresIn: config.jwt.expiresIn as SignOptions["expiresIn"] },
     );
 
     res.status(201).json({ user, token });
@@ -67,7 +67,7 @@ router.post("/login", async (req, res) => {
 
     const result = await query(
       "SELECT * FROM users WHERE email = $1",
-      [email]
+      [email],
     );
 
     if (!result.rowCount || result.rowCount === 0) {
@@ -85,11 +85,11 @@ router.post("/login", async (req, res) => {
 
     const token = jwt.sign(
       { userId: user.id, email: user.email },
-      process.env.JWT_SECRET!,
-      { expiresIn: (process.env.JWT_EXPIRES_IN ?? "7d") as SignOptions["expiresIn"] }
+      config.jwt.secret,
+      { expiresIn: config.jwt.expiresIn as SignOptions["expiresIn"] },
     );
 
-    const { password_hash, ...userPublic } = user;
+    const { password_hash: _, ...userPublic } = user;
 
     res.json({ user: userPublic, token });
   } catch (err) {
@@ -97,8 +97,5 @@ router.post("/login", async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 });
-
-
-
 
 export default router;
